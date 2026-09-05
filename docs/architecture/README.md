@@ -123,21 +123,22 @@ Season-window vectors for 1997-98+ live in one shared space: a single min-max
 scaling over both cohorts, real TOI. Within a season, a historical-track player and
 a modern one compare head to head.
 
-**A Scout question** is the only multi-stage path:
+**A Scout question** is the only multi-stage path. A planner and entity linker sit
+ahead of retrieval; comps and metadata filters can short-circuit or restrict it;
+adaptive *k* and an intent-conditioned prompt close the turn.
 
 ```mermaid
-flowchart LR
-  Q["Question"] --> SR{"Scope router — deterministic"}
-  SR -->|club/league| RID["restrict_ids + pinned_ids"]
-  SR -->|none| BOTH["Both legs"]
-  RID --> BOTH
-  BOTH --> FTS["Postgres FTS"]
-  BOTH --> VEC["pgvector HNSW"]
-  FTS --> RRF["Weighted RRF + lexical floor"]
-  VEC --> RRF
-  RRF --> RR["Rerank 20 → 5"]
-  RR --> HY["Hydrate full dossiers"]
-  HY --> GEN["Grounded answer + citations"]
+flowchart TB
+  Q["Question"] --> P["Query planner"]
+  P --> ER["Entity resolution<br/>linker + scope router"]
+  ER --> C["Comps engine"]
+  ER --> M["Metadata filter"]
+  ER --> O["Ordinary retrieval"]
+  M --> H["FTS + pgvector → weighted RRF → rerank"]
+  O --> H
+  C --> K["Adaptive k + hydrate"]
+  H --> K
+  K --> GEN["Grounded answer + citations"]
 ```
 
 Rationale and numbers: [retrieval](../retrieval/README.md).
@@ -171,10 +172,12 @@ clean batch boundary for nothing.
 | Precomputed derived scores | Columns on `prospects` | Recomputed at import |
 
 I key the answer cache **after** retrieval: question cosine ≥ 0.95 **and**
-identical sorted doc ids **and** the same model. Question similarity alone would
-serve a Jack Hughes answer to a Quinn Hughes question. Scope-routed turns are not
-cached at all — the season window the router resolved is invisible to that key, so
-caching them makes answers wrong rather than merely stale.
+identical sorted doc ids **and** the same model **and** the same `PROMPT_VERSION`
+and intent. Question similarity alone would serve a Jack Hughes answer to a Quinn
+Hughes question; omitting intent would serve a lookup answer to a comps question
+over the same docs. Scope-routed turns are not cached at all — the season window
+the router resolved is invisible to that key, so caching them makes answers wrong
+rather than merely stale.
 
 ---
 
@@ -193,6 +196,6 @@ caching them makes answers wrong rather than merely stale.
 ## Related
 
 - [ETL pipeline](../etl/README.md) — the 14 stages
-- [Retrieval](../retrieval/README.md) — the Scout path and its evaluation
+- [Retrieval](../retrieval/README.md) — ranking, the planner rewrite, and answer eval
 - [Validator](../validation/README.md) — how generated prose is gated
 - [Decisions](../decisions/README.md)

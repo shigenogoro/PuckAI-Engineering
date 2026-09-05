@@ -1,34 +1,102 @@
-# Retrieval design and evaluation
+# Retrieval and grounded answers
 
 PuckAI Scout answers from a corpus of 7,643 grounded scouting reports I generated,
-never from the model's own memory. This doc covers how I find and rank documents,
-and what that ranking measures on a labelled query set.
+never from the model's own memory. This doc covers two layers that used to be one
+pipeline: how I find and rank documents, and how a later rewrite sits a planner,
+entity linker, and computed comparables in front of those retrievers so the answer
+path can do things text search structurally cannot.
 
-Every number below comes from the harness described in
-[how it was measured](../benchmarks/README.md). The harness imports the production
+Every number below comes from the harnesses in
+[how it was measured](../benchmarks/README.md). Both harnesses call the production
 functions, so the benchmark cannot drift away from the served path.
 
 ---
 
-## The pipeline
+## Before and after
+
+The old path had no stage between the user's sentence and the retrievers. Raw text
+went verbatim to the embedding, the tsquery, the reranker, and the prompt.
+`FINAL_K` was hardcoded to 5.
 
 ```mermaid
 flowchart LR
-  Q["Question"] --> SR{"Scope router"}
-  SR -->|club/league| RID["restrict_ids + pinned_ids"]
-  SR -->|no confident match| LEGS
-  RID --> LEGS["Both legs, scope-restricted"]
-  LEGS --> F["Postgres FTS<br/>report_tsv + name_tsv"]
-  LEGS --> D["Dense<br/>pgvector HNSW cosine"]
-  F --> R["Weighted RRF<br/>dense 2.0 / lexical 1.0"]
-  D --> R
-  R --> P["Rerank pool of 20<br/>+ lexical floor"]
-  P --> K["Cross-encoder → top 5"]
-  K --> H["Hydrate full dossiers"]
-  H --> A["Grounded answer + citations"]
+  Q["Message"] --> H["embed + FTS"] --> RRF --> RR["rerank"] --> K["k = 5"] --> A["answer"]
 ```
 
-Five stages. Each one solves a failure the previous stage cannot.
+I inserted four stages in front, and replaced the constant *k* with an adaptive one:
+
+```mermaid
+flowchart TB
+  Q["Message"] --> P["Query planner<br/>intent · rewrite · filters · k hint"]
+  P --> ER["Entity resolution<br/>names · linker · scope router"]
+  ER --> C["Comps engine<br/>SQL over seasons"]
+  ER --> M["Metadata filter<br/>SQL pre-filter"]
+  ER --> O["Ordinary retrieval"]
+  M --> H["embed + FTS → RRF → rerank"]
+  O --> H
+  C --> K["Adaptive k + intent prompt"]
+  H --> K
+  K --> A["Answer"]
+```
+
+Failure on the planner always returns a plan byte-identical to the old behaviour.
+A flag turns the planner off and reproduces it exactly, which is how I scored the
+baseline below.
+
+---
+
+## The four stages
+
+### 1. Query planner
+
+One structured-output call on a small model chosen independently of whichever model
+writes the answer. It produces intent, a pronoun-resolved rewrite, named players,
+club/league scope, measurable filters, and a *k* hint.
+
+It never invents an id. It proposes name strings; the corpus's own index resolves
+them. A hallucinated name matches nothing rather than the wrong player.
+
+### 2. Entity linking
+
+The resolver used to return nothing for any name matching several players, so
+"Crosby, McDavid, and Mackinnon" pinned two and silently dropped the third. It now
+reports ambiguous spans, and the linker settles them from NHL games played,
+report-embedding similarity to the players who did resolve, and draft-cohort
+proximity. All three signals are already in the database — no extra API call.
+
+Scope routing still sits here as the club/league resolver it always was; it hands
+`restrict_ids` / `pinned_ids` into the legs below.
+
+### 3. Comparables computed, not retrieved
+
+Text search cannot answer "who produced like X". The report that most resembles a
+report about Cole O'Hara is a report about Ryan O'Hara — same surname token, wrong
+task.
+
+The comparison lives in `prospect_seasons`: anchor on the player's best pre-NHL
+season by NHLe, candidates within an age window in the same league or tier group,
+ranked by z-scored distance. Style comps reuse the anchor's own stored vector.
+That path bypasses embed/FTS entirely and feeds adaptive *k* directly.
+
+### 4. Metadata pre-filter
+
+Height, weight, draft round, nation, PPG are columns, not semantics. The planner
+extracts them; this stage turns them into `restrict_ids` — the same lever scope
+routing already used — before hybrid retrieval runs.
+
+### Supporting changes on the answer path
+
+- Chat orchestration split into a pure decide-the-answer step (writes nothing, bills
+  nobody) and a thin wrapper for quota, persistence, and response.
+- Adaptive *k* replaces the constant 5.
+- Entity masking on the lexical leg so pinned names do not drown the rest of the
+  query.
+- Intent-conditioned prompt; `PROMPT_VERSION` and intent added to the answer-cache
+  key.
+- Per-turn retrieval telemetry stored as JSONB for later diagnosis.
+
+The unit tests covering planner, linker, comps, metadata filter, and the
+decide-the-answer path brought the suite from 125 to 181.
 
 ---
 
@@ -95,7 +163,7 @@ dominated. I reverted it. **Do not retry.**
 
 **Numeric and club constraints are a metadata-filter problem, not an embedding
 problem.** Trying to make an embedding carry a hard constraint is a category error.
-It is what motivated scope routing.
+It is what motivated scope routing, and later the planner's filter extraction.
 
 ---
 
@@ -107,10 +175,11 @@ text search, structurally. Club lives only in the header — ~5% of the doc.
 the player is *now*, not where he was that season. The old behaviour returned
 UMass-**Lowell** players and alumni who had left years earlier.
 
-I built a deterministic router that sits ahead of both legs — **no LLM on the request
-path**. `detect()` resolves club or league from a DB-built alias index, hands
-`restrict_ids` into both SQL legs, and takes `pinned_ids` from the *same* percentile
-ranking the team pages use, so chat and board never disagree.
+I built a deterministic router — **no LLM for the route itself** — that resolves
+club or league from a DB-built alias index, hands `restrict_ids` into both SQL
+legs, and takes `pinned_ids` from the *same* percentile ranking the team pages use,
+so chat and board never disagree. It now sits inside entity resolution, after the
+planner has proposed scope strings.
 
 Four safeguards, each from an observed failure:
 
@@ -142,8 +211,8 @@ archetype recall to ~0 — no document contains all of a long question's words.
 Rewriting to OR made the lexical leg usable again.
 
 **`hnsw.ef_search = 400` per query.** The default 40 sits near `CANDIDATES_PER_LEG`
-(30) and costs dense recall whenever the planner uses the index. At this corpus
-size Postgres often seq-scans anyway; the setting is insurance for when it does not.
+(30) and costs dense recall whenever the index path is used. At this corpus size
+Postgres often seq-scans anyway; the setting is insurance for when it does not.
 
 ---
 
@@ -159,10 +228,92 @@ size Postgres often seq-scans anyway; the setting is insurance for when it does 
 | Header enlargement | Tried to carry club/attribute signal in the embedding | **Reverted** — noise and cost, no gain |
 | Scope routing | Club/league is not a text-search problem | Team and league NDCG@10 → 1.000 |
 | `ef_search=400` | Index path silently worse than exact | Dense near exact when HNSW is used |
+| Planner + entity linker + comps + metadata filter | Raw text and fixed *k* could not do comps, filters, or follow-ups | Answer-check pass 0.51 → 0.85; ranking NDCG flat |
 
 ---
 
-## Results
+## Answer evaluation
+
+Retrieval NDCG tells me whether the right documents are near the top. It does not
+tell me whether the chat answered the question. I added a second harness over the
+production decide-the-answer path.
+
+### Dataset
+
+119 questions over 12 intents, built from the database, with hand-written rows for
+classes SQL cannot invent (follow-ups, off-topic, absent players).
+
+| Intent | n | Intent | n |
+|---|---:|---|---:|
+| archetype | 20 | rank_team | 9 |
+| lookup | 15 | style_comps | 8 |
+| compare | 12 | constraint | 6 |
+| stat_comps | 12 | off_topic | 6 |
+| ambiguous_name | 11 | unknown_player | 6 |
+| followup | 10 | rank_league | 4 |
+
+Each row carries `must_include`, `must_not_include`, `expected_k`, `expect_refusal`,
+`facts` (SQL-pulled values a judge can check), and judge notes.
+
+**No label comes from keyword-matching the corpus or from asking the retriever under
+test.** Distractors come from name-token overlap on the corpus name column;
+constraint membership from SQL predicates; ambiguity labels from NHL games played;
+archetype labels from structured playstyle tags on the player record. That is what
+stops the benchmark scoring the system against its own opinion.
+
+### Two layers
+
+**Deterministic checks**, free on every case, no LLM: recall of the players the
+question is about; whether the answer discussed a namesake; whether every number and
+every capitalised name traces to that turn's own context; refusal correctness;
+whether *k* fits the question. The numeric trace is ported from the existing report
+validator, so a claim that traces in one place traces in both.
+
+**LLM judge**, through a batch-and-ledger loop with no live API in the runner —
+rubric mode once for a baseline, pairwise for every change after, because absolute
+scores drift between sessions and a preference between two concrete answers does
+not. A/B order is randomised per case and the mapping is kept out of the prompt.
+
+The runner calls the production decide-the-answer path, so the benchmark cannot
+drift from what users get, and records the exact context string sent to the model —
+that is what makes offline faithfulness checkable. Rescoring recomputes a summary
+from saved cases, so improving a check never costs another round of completions.
+
+### Metrics
+
+Baseline is the planner flag off — the genuine pre-change system — scored with
+identical checks.
+
+| Slice | n | Before | After |
+|---|---:|---:|---:|
+| lookup | 15 | 0.00 | 0.73 |
+| compare | 12 | 0.00 | 0.83 |
+| followup | 10 | 0.00 | 0.80 |
+| unknown_player | 6 | 0.33 | 1.00 |
+| ambiguous_name | 11 | 0.36 | 0.82 |
+| style_comps | 8 | 0.62 | 0.75 |
+| constraint | 6 | 0.83 | 1.00 |
+| archetype | 20 | 0.85 | 1.00 |
+| stat_comps | 12 | 0.92 | 0.75 |
+| rank_team | 9 | 1.00 | 0.89 |
+| **overall** | **119** | **0.51** | **0.85** |
+
+Answers discussing a namesake: 18 → about 1. Mean *k* was 5.00 in every category;
+it is now 1.07 for lookups, 2.00 for comparisons, 8.00 for league rankings.
+Follow-up recall went 0.000 → 1.000.
+
+Two honest caveats. **stat_comps** reads as a regression and is not: the baseline
+scored 0.92 while returning useless namesake comps, because mechanical checks
+measure faults, not usefulness. And only 5 of 119 pairwise judgements have been
+run — enough to prove the loop and to catch the baseline reversing a player's goals
+and assists on a case both number checks passed, but not a full sweep.
+
+Retrieval ranking was re-measured as a no-regression check and is unchanged:
+NDCG@10 0.682 → 0.684 on 78 queries.
+
+---
+
+## Ranking results
 
 77 labelled queries — 30 name, 29 archetype, 8 team, 6 multi_name, 4 league — at
 depth 10, against a corpus snapshot of 7,406 reports. Label construction and its
@@ -241,12 +392,13 @@ reach 1.000 however perfect the retrieval. That is the whole of the team class's
 0.950 — one club in the set has 3 reports in the corpus.
 
 **NDCG@10 normalises per query**, which makes it the fairest single comparison and
-the reason it is the headline.
+the reason it is the headline for ranking. Answer-check pass rate is the headline
+for the chat path.
 
 ---
 
 ## Related
 
-- [How it was measured](../benchmarks/README.md) — how the query set is built
+- [How it was measured](../benchmarks/README.md) — how both query sets are built
 - [Validator](../validation/README.md) — what makes the corpus trustworthy
 - ADRs [0001](../decisions/0001-hybrid-retrieval.md) · [0002](../decisions/0002-weighted-rrf.md) · [0003](../decisions/0003-separate-name-and-prose-text-vectors.md)

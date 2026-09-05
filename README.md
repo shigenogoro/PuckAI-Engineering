@@ -30,7 +30,7 @@ so.
 | **Prospect projection** | Three XGBoost heads over 55,455 pre-NHL players: P(NHL), P(GP ≥ 200 \| NHL), and a conditional tier with floor and ceiling | I predict whether a junior player makes the NHL, how long he lasts if he does, and what tier he lands in |
 | **Similar players** | pgvector nearest-neighbour over 8-dimensional aspect vectors; cross-era for the time-on-ice era (1997-98+) | I find players who play similarly, even across different eras |
 | **Scouting reports** | 7,643 generated reports, every number in them traced back to a pipeline value by a checker | I generate scouting write-ups and verify every fact against pipeline data |
-| **PuckAI Scout** | Chat over that corpus: Postgres full-text + dense vectors, weighted RRF, neural rerank, scope routing, citations | I built a chat that searches my report library and cites its sources |
+| **PuckAI Scout** | Chat over that corpus: planner → entity linker → hybrid retrieval or computed comps, adaptive *k*, citations | I built a chat that searches my report library and cites its sources |
 
 ## How it fits together
 
@@ -68,7 +68,7 @@ first in [architecture](docs/architecture/README.md).
 |---|---|
 | [Architecture](docs/architecture/README.md) | How I split offline and online, what each component does, and how requests flow |
 | [ETL pipeline](docs/etl/README.md) | The 14 stages, what each one guarantees, idempotency, and how it fails |
-| [Retrieval](docs/retrieval/README.md) | How I built hybrid search, weighted RRF, scope routing, and the full result tables |
+| [Retrieval](docs/retrieval/README.md) | Hybrid search, the planner rewrite, answer-check results, and ranking tables |
 | [Report validator](docs/validation/README.md) | The checker I wrote to gate generated prose — six checks, no LLM |
 | [How it was measured](docs/benchmarks/README.md) | Every number in this repo, and what it does not prove |
 | [Label leakage in Stage 1](docs/bugs/label-leakage.md) | A missing column that meant two things — how I split coverage from rank |
@@ -79,8 +79,8 @@ first in [architecture](docs/architecture/README.md).
 
 These are production measurements, not notebook benchmarks.
 
-Retrieval — 77 labelled queries, depth 10. Full tables and the per-class breakdown
-in [retrieval](docs/retrieval/README.md#results).
+Retrieval ranking — 77 labelled queries, depth 10. Full tables in
+[retrieval](docs/retrieval/README.md#ranking-results).
 
 | Setup | NDCG@10 | MRR@10 | P@5 |
 |---|---:|---:|---:|
@@ -89,6 +89,15 @@ in [retrieval](docs/retrieval/README.md#results).
 | Hybrid, unweighted RRF | 0.522 | 0.640 | 0.177 |
 | Hybrid + rerank | 0.582 | 0.720 | 0.239 |
 | **+ scope routing** | **0.682** | **0.764** | **0.330** |
+
+Answer path — 119 questions, 12 intents, planner off vs on. Per-slice table in
+[retrieval](docs/retrieval/README.md#answer-evaluation).
+
+| | Before | After |
+|---|---:|---:|
+| Overall check pass | 0.51 | **0.85** |
+| Namesake answers | 18 | ~1 |
+| Follow-up recall | 0.000 | 1.000 |
 
 Projection — held out, mean ± sd over three split seeds. Draft round alone gets
 macro-F1 ≈ 0.18 (F) and ≈ 0.12 (D); that is the number to beat.

@@ -1,15 +1,16 @@
 # How it was measured
 
 Every number in this repo is something I measured on the real system — how I
-produced it, and what it does not prove. Three separate regimes: retrieval,
-projection models, generated reports.
+produced it, and what it does not prove. Four separate regimes: retrieval ranking,
+grounded answers, projection models, generated reports.
 
 ---
 
 ## The harness imports the served code
 
-My retrieval eval calls the same functions the API calls. It does not reimplement
-ranking and does not keep a parallel copy of the fusion or rerank logic.
+My retrieval and answer evals call the same functions the API calls. They do not
+reimplement ranking, planning, or fusion, and they do not keep a parallel copy of
+the served path.
 
 That is not a convenience. A benchmark that reimplements the system measures the
 reimplementation, and drifts silently the moment the two diverge — usually right
@@ -80,7 +81,7 @@ intermediates so the final number is interpretable — and that is how I caught 
 finding that *unweighted* hybrid scores below vector alone on archetypes instead of
 shipping it.
 
-Results: [retrieval](../retrieval/README.md#results).
+Results: [retrieval](../retrieval/README.md#ranking-results).
 
 ### Limits
 
@@ -95,6 +96,62 @@ Results: [retrieval](../retrieval/README.md#results).
 - **Class sizes are uneven.** Four league queries cannot support a fine-grained
   conclusion, which is why I only quote the league result where the effect is
   enormous.
+
+---
+
+## Grounded answers
+
+Ranking NDCG does not say whether the chat answered the question. The answer
+harness runs the production decide-the-answer path over 119 questions across 12
+intents and scores the resulting answer plus the context that produced it.
+
+### The query set
+
+| Intent | n | Intent | n |
+|---|---:|---|---:|
+| archetype | 20 | rank_team | 9 |
+| lookup | 15 | style_comps | 8 |
+| compare | 12 | constraint | 6 |
+| stat_comps | 12 | off_topic | 6 |
+| ambiguous_name | 11 | unknown_player | 6 |
+| followup | 10 | rank_league | 4 |
+
+Most rows are generated from the database. Follow-ups, off-topic turns, and absent
+players are hand-written — SQL cannot invent those classes. Each row carries
+include/exclude constraints, an expected *k*, a refusal flag, and SQL-pulled facts
+a judge can check.
+
+**The anti-circularity rule is the same as ranking.** No label comes from
+keyword-matching the corpus or from asking the retriever under test. Distractors
+come from name-token overlap on the corpus name column; constraint membership from
+SQL predicates; ambiguity from NHL games played; archetypes from structured
+playstyle tags.
+
+### Two scoring layers
+
+| Layer | Cost | What it answers |
+|---|---|---|
+| Deterministic checks | Free, every case | Player recall, namesake leakage, number/name faithfulness to that turn's context, refusal correctness, whether *k* fits |
+| LLM judge | Batch ledger, pairwise after a rubric baseline | Preference between two concrete answers — absolute rubric scores drift across sessions |
+
+The numeric faithfulness check is ported from the report validator, so a claim that
+traces in generation traces in chat. The runner records the exact context string
+sent to the model; rescoring recomputes summaries from saved cases without new
+completions.
+
+Baseline is the planner flag off — the pre-change system — under identical checks.
+Headline: overall pass 0.51 → 0.85. Full per-slice table:
+[retrieval](../retrieval/README.md#answer-evaluation).
+
+### Limits
+
+- **Mechanical checks measure faults, not usefulness.** The baseline scored 0.92 on
+  `stat_comps` while returning namesake comps that were useless as answers. A drop
+  to 0.75 after the rewrite is not evidence the new path is worse at the task.
+- **Pairwise coverage is thin.** 5 of 119 judgements have been run — enough to prove
+  the loop and to catch a goals/assists reversal both number checks missed, not a
+  full preference sweep.
+- **119 questions is still small** for rare intents. `rank_league` has four rows.
 
 ---
 
@@ -206,7 +263,8 @@ guarantee.
 
 | Regime | How | Notes |
 |---|---|---|
-| Retrieval | Rebuild the query sets, run the harness | Deterministic given a corpus snapshot. The corpus grows between runs, so the snapshot count is recorded with the results |
+| Retrieval ranking | Rebuild the query sets, run the harness | Deterministic given a corpus snapshot. The corpus grows between runs, so the snapshot count is recorded with the results |
+| Grounded answers | Rebuild the answer query set, run the decide-the-answer path | Baseline is the planner flag off. Rescore from saved cases without new completions |
 | Projection | Re-run the stage | Split seeds fixed and recorded; outputs include a metrics JSON next to the predictions |
 | Generation | Re-run the ledger-driven batches | Generation is not deterministic. The gate is |
 
@@ -217,6 +275,6 @@ checked against the file that produced them rather than against a document.
 
 ## Related
 
-- [Retrieval results](../retrieval/README.md#results)
+- [Retrieval ranking and answer results](../retrieval/README.md)
 - [Validator](../validation/README.md)
 - [The two bugs](../bugs/) — where good metrics hid real problems
