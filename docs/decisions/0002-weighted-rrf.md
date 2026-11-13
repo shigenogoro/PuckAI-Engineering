@@ -1,4 +1,4 @@
-# 0002 — Weighted reciprocal rank fusion rather than score blending
+# 0002: Weighted reciprocal rank fusion rather than score blending
 
 **Status:** Accepted
 
@@ -36,7 +36,7 @@ fitting noise.
 
 - The dense weight is flat across a 2.0 to 5.0 sweep, which is the reassuring
   shape: the result is not balanced on a knife edge.
-- Weighting dense at 2.0 introduced a new failure — on a query naming two players,
+- Weighting dense at 2.0 introduced a new failure. On a query naming two players,
   the second name could be pushed past the rerank pool boundary and never scored
   by the cross-encoder. A lexical floor in the pool fixes it, and moved multi-name
   recall@5 from 0.833 to 1.000.

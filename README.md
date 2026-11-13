@@ -1,24 +1,22 @@
-# PuckAI — engineering write-up
+# PuckAI: engineering write-up
 
 **Live site: [www.thepuckai.com](https://www.thepuckai.com)**
 
-I built PuckAI as a hockey analytics site: NHL player profiles and tiers, pre-NHL
-prospect projections, cross-era similar-player search, and a scouting chat that
-answers from a report corpus instead of from the model's own memory. I design it,
-build it, and run it solo.
+PuckAI is a hockey analytics site I built and run on my own. It has NHL player profiles and tiers,
+projections for pre-NHL prospects, a similar-player search that works across eras, and a scouting
+chat that answers from a library of reports I generated and checked.
 
-This repo is the public write-up — architecture, the decisions I made and what they
-cost, how I measured everything, and how the hard parts were debugged. **No product
-code.** The platform itself lives in a private repo.
+This repo is the write-up: how the system is put together, the decisions I made and what they
+cost, how I measured things, and how I debugged the hard parts. There is no product code here. The
+platform lives in a private repo.
 
 ## Why this repo exists
 
-The product code is private, so there is nothing to clone and run. What I can publish
-is the engineering behind it: how the system is shaped and what the numbers actually
-are.
+Since the code is private, there is nothing to clone and run. What I can share is the engineering:
+how the pieces fit, and what the numbers actually are.
 
-Every number here is measured off the production system. Anything illustrative says
-so.
+Every number in here was measured on the production system. If something is only illustrative, it
+says so.
 
 ---
 
@@ -26,17 +24,18 @@ so.
 
 | Surface | What it is | In plain terms |
 |---|---|---|
-| **Player tiers** | 2,700 NHL skaters on a four-cohort ladder — Elite / Star / Core / Depth / Fringe **assigned** from career value, **predicted** for early-career players, **deferred** to the prospect board for rookies — plus 0–100 aspect scores per season | I grade NHL players on a five-rung ladder and score how they play across eight dimensions |
-| **Prospect projection** | Three XGBoost heads over 55,455 pre-NHL players: P(NHL), P(GP ≥ 200 \| NHL), and a conditional tier with floor and ceiling | I predict whether a junior player makes the NHL, how long he lasts if he does, and what tier he lands in |
-| **Similar players** | pgvector nearest-neighbour over 8-dimensional aspect vectors; cross-era for the time-on-ice era (1997-98+) | I find players who play similarly, even across different eras |
-| **Scouting reports** | 7,643 generated reports, every number in them traced back to a pipeline value by a checker | I generate scouting write-ups and verify every fact against pipeline data |
-| **PuckAI Scout** | Chat over that corpus: planner → entity linker → hybrid retrieval or computed comps, adaptive *k*, citations | I built a chat that searches my report library and cites its sources |
+| **Player tiers** | 2,700 NHL skaters on a five-rung ladder (Elite / Star / Core / Depth / Fringe). Tiers are assigned from career value, predicted for early-career players, and deferred to the prospect board for rookies. Each season also gets 0-100 scores on eight aspects. | I grade NHL players and score how they play across eight dimensions. |
+| **Prospect projection** | Three XGBoost heads over 55,455 pre-NHL players: P(NHL), P(GP >= 200 given NHL), and a conditional tier with a floor and a ceiling. | I predict whether a junior player makes the NHL, how long he lasts, and where he lands. |
+| **Similar players** | pgvector nearest-neighbour search over 8-dimensional aspect vectors, cross-era for the time-on-ice era (1997-98 on). | I find players who play alike, even across eras. |
+| **Scouting reports** | 7,643 generated reports. A checker traces every number in them back to a pipeline value. | I generate scouting write-ups and verify every fact against my own data. |
+| **PuckAI Scout** | Chat over that library: a planner, an entity linker, hybrid retrieval or computed comparables, adaptive *k*, and citations. | A chat that searches my reports and cites them. |
+| **Scout Agent** | A LangGraph tool loop on top of Scout that can search the web (Tavily) and find highlight videos (YouTube Data API). | When the reports are too old to answer, the chat can look things up. |
 
 ## How it fits together
 
-I split the system into an offline half that computes everything and an online half
-that serves it read-only. Batch jobs produce versioned artifacts; import scripts
-load them into Postgres; the API and frontend read from there.
+I split the system into an offline half that computes everything and an online half that serves it
+read-only. Batch jobs produce versioned artifacts, import scripts load them into Postgres, and the
+API and frontend read from there.
 
 ```mermaid
 flowchart LR
@@ -49,6 +48,8 @@ flowchart LR
   subgraph Online
     DB[("PostgreSQL + pgvector")]
     API["FastAPI"] --> DB
+    API --> AG["Scout Agent<br/>LangGraph"]
+    AG --> EXT["Tavily · YouTube"]
     WEB["Next.js"] --> API
   end
   ETL --> IMP["import scripts"]
@@ -57,65 +58,83 @@ flowchart LR
   USER(("User")) --> WEB
 ```
 
-The offline path is batch and reproducible. The online path is stateless and
-read-only for hockey data — the only writes on the request path are chat, feedback,
-and saves. That split is the decision everything else hangs off; I walk through it
-first in [architecture](docs/architecture/README.md).
+The offline path is batch and reproducible. The online path never writes hockey data. The only
+writes on the request path are chat, feedback, saved lists, and the agent's tool cache. Most of the
+other decisions follow from that split, so it is the first thing I cover in
+[architecture](docs/architecture/README.md).
 
 ## What's in here
 
 | Document | What you'll find |
 |---|---|
-| [Architecture](docs/architecture/README.md) | How I split offline and online, what each component does, and how requests flow |
+| [Architecture](docs/architecture/README.md) | How I split offline and online, what each component does, and how a request flows |
 | [ETL pipeline](docs/etl/README.md) | The 14 stages, what each one guarantees, idempotency, and how it fails |
-| [Retrieval](docs/retrieval/README.md) | Hybrid search, the planner rewrite, answer-check results, and ranking tables |
-| [Report validator](docs/validation/README.md) | The checker I wrote to gate generated prose — six checks, no LLM |
-| [How it was measured](docs/benchmarks/README.md) | Every number in this repo, and what it does not prove |
-| [Label leakage in Stage 1](docs/bugs/label-leakage.md) | A missing column that meant two things — how I split coverage from rank |
-| [Calibration by age band](docs/bugs/serving-time-calibration.md) | Why a global isotonic fit flattened every 17-year-old onto the base rate |
-| [Decisions](docs/decisions/README.md) | Short records of choices I made — context, what else I tried, what it cost |
+| [Retrieval](docs/retrieval/README.md) | Hybrid search, the planner rewrite, the answer benchmark, and the ranking tables |
+| [Scout Agent](docs/agent/README.md) | The tool loop, the fact check on web answers, video identity checks, quotas, MCP, tracing |
+| [Report validator](docs/validation/README.md) | The checker that gates generated prose: six checks, no LLM |
+| [Automation](docs/ci-cd/README.md) | What runs unattended, how a scheduled job is kept away from production, and two bugs only a real run found |
+| [How it was measured](docs/benchmarks/README.md) | Where every number comes from, and what it does not prove |
+| [Label leakage in Stage 1](docs/bugs/label-leakage.md) | A missing column that meant two things, and how I split coverage from rank |
+| [Calibration by age band](docs/bugs/serving-time-calibration.md) | Why one global isotonic fit flattened every 17-year-old onto the base rate |
+| [Players nobody asked about](docs/bugs/junk-entity-pins.md) | Seven separate causes behind one symptom, and why the harness had to exist first |
+| [Decisions](docs/decisions/README.md) | Short records of choices I made: the context, what else I tried, what it cost |
 
 ## Numbers
 
-These are production measurements, not notebook benchmarks.
-
-Retrieval ranking — 77 labelled queries, depth 10. Full tables in
-[retrieval](docs/retrieval/README.md#ranking-results).
+**Retrieval ranking.** 78 labelled queries at depth 10, over the 7,643-report corpus. Full tables
+are in [retrieval](docs/retrieval/README.md#ranking-results).
 
 | Setup | NDCG@10 | MRR@10 | P@5 |
 |---|---:|---:|---:|
-| Keyword only | 0.488 | 0.555 | 0.140 |
-| Vector only | 0.508 | 0.619 | 0.182 |
-| Hybrid, unweighted RRF | 0.522 | 0.640 | 0.177 |
-| Hybrid + rerank | 0.582 | 0.720 | 0.239 |
-| **+ scope routing** | **0.682** | **0.764** | **0.330** |
+| Keyword only | 0.482 | 0.554 | 0.146 |
+| Vector only | 0.505 | 0.614 | 0.185 |
+| Hybrid, unweighted RRF | 0.518 | 0.638 | 0.177 |
+| Hybrid + rerank | 0.583 | 0.715 | 0.241 |
+| **+ scope routing** | **0.686** | **0.762** | **0.333** |
 
-Answer path — 119 questions, 12 intents, planner off vs on. Per-slice table in
-[retrieval](docs/retrieval/README.md#answer-evaluation).
+**Answers.** The planner rewrite was measured first, on 119 questions (overall check pass 0.51 to
+0.85). The table below is the second round: closing seven causes that let players nobody asked
+about into the answer, on 132 questions across 13 intents, with both sides scored by the current
+deterministic checks. Both tables are in [retrieval](docs/retrieval/README.md#answer-evaluation).
 
 | | Before | After |
 |---|---:|---:|
-| Overall check pass | 0.51 | **0.85** |
-| Namesake answers | 18 | ~1 |
-| Follow-up recall | 0.000 | 1.000 |
+| Clean answers (no mechanical fault) | 0.667 | **0.795** |
+| Answers that discussed a player nobody asked about | 9 | **0** |
+| Names in the answer that trace to nothing | 20 | 7 |
+| Blind pairwise judge on the weakest slice | | 7 wins, 6 ties, 0 losses |
 
-Projection — held out, mean ± sd over three split seeds. Draft round alone gets
-macro-F1 ≈ 0.18 (F) and ≈ 0.12 (D); that is the number to beat.
+One slice got worse: ambiguous names went from 0.64 to 0.55, and it is still open.
+
+**Scout Agent.** 26 labelled questions run live against YouTube and Tavily. Details in
+[Scout Agent](docs/agent/README.md#measured-results).
+
+| | |
+|---|---:|
+| Picked the right tools | 26 / 26 |
+| Searches nobody asked for | 0 |
+| Database-only answers passed through unchanged | 1.00 |
+| Whole turn, p50 / p95 | 5.1 s / 8.5 s |
+| Web turn, before and after merging the answer | 15.4 s to 10.1 s |
+| Wrong-player videos rejected (40 saved results) | 14 / 14 |
+
+**Projection.** Held out, mean ± sd over three split seeds. Draft round alone gets macro-F1 of about
+0.18 for forwards and 0.12 for defense, and that is the number to beat.
 
 | Head | Metric | Value |
 |---|---|---:|
-| Stage 1 — P(NHL) | ROC-AUC / PR-AUC | 0.977 ± 0.001 / 0.849 ± 0.005 |
-| Stage 1b — P(GP ≥ 200 \| NHL) | ROC-AUC | 0.699 ± 0.014 |
-| Stage 2 — tier, F | exact / within-1 / macro-F1 | 0.375 / 0.767 / 0.379 |
-| Stage 2 — tier, D | exact / within-1 / macro-F1 | 0.314 / 0.729 / 0.291 |
+| Stage 1: P(NHL) | ROC-AUC / PR-AUC | 0.977 ± 0.001 / 0.849 ± 0.005 |
+| Stage 1b: P(GP >= 200 given NHL) | ROC-AUC | 0.699 ± 0.014 |
+| Stage 2: tier, F | exact / within-1 / macro-F1 | 0.375 / 0.767 / 0.379 |
+| Stage 2: tier, D | exact / within-1 / macro-F1 | 0.314 / 0.729 / 0.291 |
 
-Report generation — 953 batches, 2026-07-31 to 2026-08-23.
+**Report generation.** 953 batches, 2026-07-31 to 2026-08-23.
 
 | | |
 |---|---:|
 | Attempts | 7,670 |
 | Passed the checker | 7,643 |
-| Rejected, regenerated | 27 (0.35%) |
+| Rejected and regenerated | 27 (0.35%) |
 | Quarantined | 0 |
 
 ## Scale
@@ -133,15 +152,21 @@ Report generation — 953 batches, 2026-07-31 to 2026-08-23.
 
 ## Stack
 
-**Offline** — Python 3.12, pandas, XGBoost, scikit-learn; a staged ETL package with
-a CLI runner (`--only` / `--skip`); pytest for schema and data-quality gates.
-**Online** — FastAPI 0.136 + SQLAlchemy 2.0 + Pydantic 2.13 on serverless;
-PostgreSQL 16 + pgvector (HNSW cosine) on Supabase; Next.js 16 / React 19 /
-TypeScript / Tailwind 4. **AI** — Voyage embeddings (1024d) and `rerank-2.5-lite`;
-the answer model is provider-pluggable. Local dev runs the whole stack on Docker
-Compose.
+**Offline:** Python 3.12, pandas, XGBoost, scikit-learn, a staged ETL package with a CLI runner
+(`--only` / `--skip`), and pytest for schema and data-quality gates.
+
+**Automation:** GitHub Actions runs the test suites on every push and pull request, checks pinned
+artifacts by hash, and refreshes in-season NHL stats every night. Vercel deploys on merge to `main`.
+
+**Online:** FastAPI + SQLAlchemy 2.0 + Pydantic 2 on serverless, PostgreSQL 16 + pgvector (HNSW,
+cosine) on Supabase, and Next.js 16 / React 19 / TypeScript / Tailwind 4. Local development runs
+the whole stack on Docker Compose.
+
+**AI:** Voyage embeddings (1024d) and `rerank-2.5-lite`, a provider-pluggable answer model,
+LangGraph for the agent loop, Tavily and the YouTube Data API as tools, an MCP server for Claude
+Desktop / Claude Code / Cursor, and OpenTelemetry tracing.
 
 ---
 
-**The core platform is a private repo. If you want a walkthrough or read access,
-ask — happy to show how it works.**
+**The core platform is in a private repo. If you want a walkthrough or read access, ask and I'm
+happy to show you how it works.**

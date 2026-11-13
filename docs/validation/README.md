@@ -14,7 +14,7 @@ the player's context JSON.
 I tried grounding rules *in the prompt* first, across three generation rounds on a
 5-player sample. They did not hold. The model invented an age ("age 40"), a trophy
 count ("second Norris"), a national ranking ("fourth nationally"), and banned
-tracking-data vocabulary ("gap control") — all of it against explicit instructions
+tracking-data vocabulary ("gap control"), all of it against explicit instructions
 not to.
 
 The verification pass caught them. So I put verification in the pipeline, not in a
@@ -29,7 +29,7 @@ guarantee. They are not substitutes.
 
 ```mermaid
 flowchart LR
-  L[("Ledger — the only state")] --> B["Dispatch batch of N"]
+  L[("Ledger: the only state")] --> B["Dispatch batch of N"]
   B --> G["Generation"]
   G --> V{"validate()"}
   V -->|clean| P["Publish"]
@@ -39,11 +39,11 @@ flowchart LR
   Q --> L
 ```
 
-The ledger is the entire state of a run. A batch that never returns — session limit
-hit mid-flight — stays pending and gets picked up next cycle. No queue, no lock, no
+The ledger is the entire state of a run. A batch that never returns (say the session
+limit hits mid-flight) stays pending and gets picked up next cycle. No queue, no lock, no
 partial-write recovery: resume is re-reading the ledger.
 
-One regeneration per report. A second failure quarantines rather than publishing.
+One regeneration per report. A second failure quarantines the report. It is never published.
 
 ---
 
@@ -65,7 +65,7 @@ one. The derivation set is explicit, not a loose tolerance:
 | Prose-rounding tolerance | max(0.011 absolute, 0.5% relative) |
 
 Comma-grouped thousands are normalised on both sides first, so "1,082" is checked as
-1082 rather than as the fragments "1" and "082" — which otherwise match by chance
+1082, not as the fragments "1" and "082", which would otherwise match by chance
 almost every time. Small integers (0–3) are skipped as ordinary prose counters.
 
 ### 2. Proper nouns
@@ -75,7 +75,7 @@ Catches invented trophies, teams, rankings.
 
 Two refinements were needed. A lone capitalised word that merely starts a sentence
 is grammar, not a name. And a multi-token name must match as a **phrase**, with a
-per-token fallback only for single tokens — otherwise "second Norris" passes because
+per-token fallback only for single tokens. Otherwise "second Norris" passes because
 each of its words exists somewhere in the context.
 
 ### 3. Ordinal phrases
@@ -83,7 +83,7 @@ each of its words exists somewhere in the context.
 A distinct fabrication class, invisible to the proper-noun check: the ordinal itself
 is lowercase even when the *count* is invented.
 
-The bare word is useless to check — "fourth" appears in a bio as "fourth round",
+The bare word is useless to check. "fourth" appears in a bio as "fourth round",
 which would license "ranked fourth nationally". So I check the ordinal as a
 phrase with the word it modifies, and only when it is a real count claim: an ordinal
 naming something specific ("second Norris") or a ranking ("fourth nationally").
@@ -103,7 +103,7 @@ one-timer, tip-in, wrister · edges, first step, gap control · puck battle, win
 
 An age claim must match the computed `age_by_season`, **scoped to the season it is
 attached to**. "At just 18 years old… during 2025-26" was wrong even though 18
-appears in the context — for a different season.
+appears in the context, for a different season.
 
 ### 6. Awards and medals
 
@@ -119,16 +119,16 @@ anchored by the event words and years in that sentence.
 
 ## False positives were the hard part
 
-A validator that fires on correct reports is worse than none — it teaches the
+A validator that fires on correct reports is worse than none, because it teaches the
 generator to delete true statements to satisfy the checker. Every narrowing is
 recorded at the rule.
 
 | Rule | Failure | Fix |
 |---|---|---|
 | Banned vocab | Substring matching fired "edges" inside *acknowledges*, "stride" inside *strident* | Whole-word match only |
-| Banned vocab | "reach" is an ordinary verb — "reach the NHL" — and flagged nearly every report | Dropped from the list |
+| Banned vocab | "reach" is an ordinary verb ("reach the NHL") and flagged nearly every report | Dropped from the list |
 | Age | The pattern read "23.6 years old" as an age claim of **6** | Capture the number with its decimal |
-| Event words | "olympics" never matched a context saying "Olympic Winter Games", failing a report whose medal was real | Singular stems only — they match either form |
+| Event words | "olympics" never matched a context saying "Olympic Winter Games", failing a report whose medal was real | Singular stems only, which match either form |
 | Ordinals | The bare word licensed inventions and flagged ordinary prose | Phrase-level, restricted to real count claims |
 | Numbers | A missing CSV field arrives as NaN and is not a citable value | Non-finite values excluded from the pool |
 
@@ -163,10 +163,12 @@ I state these plainly, because a checker whose limits are undocumented gets trus
 past where it works.
 
 **The number check is a presence check, not a semantic one.** A value that appears
-anywhere in the context passes anywhere in the report — a draft year reused as a
+anywhere in the context passes anywhere in the report, so a draft year reused as a
 games-played total would not be caught. Catching that needs field-aware parsing. My
 backstop is a 2% LLM spot-audit on published reports, which is a sample, not a
-guarantee.
+guarantee. The same presence check now also guards the Scout Agent's web answers, and
+there I added a semantic LLM check on top of it for exactly this gap
+([Scout Agent](../agent/README.md#5-two-layers-of-fact-check-on-web-answers)).
 
 **The proper-noun allowlist is hand-maintained.** A new legitimately capitalised
 hockey term is a false positive until I add it.
@@ -179,6 +181,6 @@ reading.
 
 ## Related
 
-- [Retrieval](../retrieval/README.md) — what gets done with the validated corpus
-- [ADR 0005](../decisions/0005-deterministic-validator-over-llm-judge.md) — why not an LLM judge
+- [Retrieval](../retrieval/README.md): what gets done with the validated corpus
+- [ADR 0005](../decisions/0005-deterministic-validator-over-llm-judge.md): why not an LLM judge
 - [How it was measured](../benchmarks/README.md)

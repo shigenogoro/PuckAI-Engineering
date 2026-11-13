@@ -1,4 +1,4 @@
-# 0003 — Two text-search vectors, not one
+# 0003: Two text-search vectors, not one
 
 **Status:** Accepted
 
@@ -23,7 +23,7 @@ query class on the site.
 **One `simple` vector over everything.** No stemming at all, so archetype prose
 stops matching on anything but exact word forms.
 
-**One tsquery OR-ing both configurations.** I tried this. Node count explodes — ~952 ms
+**One tsquery OR-ing both configurations.** I tried this. Node count explodes: about 952 ms
 against ~134 ms for the split version. A 7× latency cost on the request path to
 avoid a second column.
 

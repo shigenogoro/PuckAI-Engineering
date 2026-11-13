@@ -14,7 +14,7 @@ tier model does not force a re-scrape and a re-clean.
 
 ```mermaid
 flowchart TD
-  subgraph Core["NHL core — 9 stages"]
+  subgraph Core["NHL core: 9 stages"]
     S1["1 cleaning"] --> S2["2 filtering"] --> S3["3 feature_engineering"]
     S3 --> S4["4 season_trajectory"] --> S5["5 tier_clustering"]
     S3 --> S6["6 historical_tiers"] --> S7["7 historical_trajectory"]
@@ -22,7 +22,7 @@ flowchart TD
     S7 --> S8
     S8 --> S9["9 db_export"]
   end
-  subgraph Ext["Prospect + serving — 5 stages"]
+  subgraph Ext["Prospect + serving: 5 stages"]
     S9 --> S10["10 provisional_tiers"]
     S11["11 prospect_dataset"] --> S12["12 league_factors"]
     S12 --> S13["13 pre_nhl_projection"]
@@ -56,23 +56,23 @@ consequential than it looks. Not every NHL player has earned a tier, and pretend
 otherwise is how a board fills up with confident nonsense about players who have
 played nine games.
 
-I carve four cohorts in this order — each one takes from what the previous left:
+I carve four cohorts in this order, and each one takes from what the previous one left:
 
 | Order | Cohort | Rule | How the player gets graded |
 |---|---|---|---|
-| 1 | **Fringe** | `total_gp < 40` **and** `max_gp_per_season < 25` **and** `seasons_over_6_gp ≤ 2` **and** `age > 26` | Assigned. Its own class — never a low Depth |
-| 2 | **Rookie** | `seasons_over_6_gp < 2` **and** `max_gp_per_season ≤ 25` **and** `age ≤ 26` | **Not tiered.** Stays on the prospect board — his projection is still the best thing anyone has |
+| 1 | **Fringe** | `total_gp < 40` **and** `max_gp_per_season < 25` **and** `seasons_over_6_gp ≤ 2` **and** `age > 26` | Assigned. Its own class, never a low Depth |
+| 2 | **Rookie** | `seasons_over_6_gp < 2` **and** `max_gp_per_season ≤ 25` **and** `age ≤ 26` | **Not tiered.** Stays on the prospect board, where his projection is still the best thing anyone has |
 | 3 | **Provisional** | `25 < total_gp < 164` **and** `age ≤ 26` | **Predicted** from an early-career window (stage 10) |
 | 4 | **Stable** | Everything left | **Assigned** from realised career value |
 
 The order is the design. Age gates come *after* the production gates, so a
 26-year-old with two games is a rookie and a 30-year-old with the same record is
-fringe — the same stat line, different meanings, and only sequence separates them.
+fringe. Same stat line, different meanings, and only the order separates them.
 
 Two rules carry most of the weight:
 
 **A provisional player who has left the NHL/AHL system is folded into stable.**
-Gone to the KHL, or retired — the outcome is known, so there is nothing left to
+Gone to the KHL, or retired: the outcome is known, so there is nothing left to
 predict. He gets tiered on career value like anyone else, where the 200-GP floor
 keeps a short NHL stint out of the top tiers. Passing `in_system=None`, as the
 historical cohort does, keeps everyone provisional, because "still in the system"
@@ -80,9 +80,9 @@ is meaningless for a player from 1974.
 
 **A rookie is handed back to the prospect board rather than tiered.** A player with
 one 20-game call-up has an NHL sample that says nothing, and an amateur record that
-says a great deal. The product shows the projection, badged `Rookie — on the
-prospect board`, instead of inventing an NHL tier. Provisional players below the
-60-GP threshold that stage 10 requires are badged `Provisional — early NHL, not yet
+says a great deal. The product shows the projection, badged `Rookie: on the
+prospect board`. It does not invent an NHL tier. Provisional players below the
+60-GP threshold that stage 10 requires are badged `Provisional: early NHL, not yet
 tiered` for the same reason.
 
 That handoff is the point of the cohort split: **the prospect engine owns a player
@@ -91,16 +91,16 @@ sooner.** A tier is a claim, and I only make one where I have the evidence.
 
 ### What a tier is
 
-This is how I grade the **stable** cohort — the players with enough career to
+This is how I grade the **stable** cohort, the players with enough career to
 measure. It is not a clustering of rate stats. That is the naive version and it
 produces a board full of high-rate players who never played.
 
-- **Elite and Star** — the top 30% — come off a **career-value** composite:
+- **Elite and Star** (the top 30%) come off a **career-value** composite:
   sample-size-shrunk rates combined with total production. Careers under a GP floor
   are excluded from the top tiers outright. Elite is the top 10%, award-calibrated,
   symmetric across F and D.
-- **Core vs Depth splits on durability, not rate.** A regular — averaging ≥ 40
-  GP/season — is Core; a part-timer at the same rate is Depth. This is the single
+- **Core vs Depth splits on durability, not rate.** A regular, averaging 40 or more
+  GP a season, is Core; a part-timer at the same rate is Depth. This is the single
   distinction that most changes how the board reads, and rate-only clustering gets
   it wrong every time.
 - **Fringe** is its own class, not the bottom of the scale.
@@ -119,7 +119,7 @@ common all-players reference, real TOI rather than a neutralised stand-in, one
 min-max scaling over the pooled rows. A 2009-10 window on the historical track and
 a 2009-10 window on the modern track then share coordinates.
 
-`db_export` stitches by season-start year — unified vectors from 1997 on,
+`db_export` stitches by season-start year: unified vectors from 1997 on,
 TOI-neutralised historical vectors before that. The API's season-scope query needs
 no era filter at all; it already compares inside a calendar season, and the unified
 scaling is what makes that honest.
@@ -136,24 +136,24 @@ scaling is what makes that honest.
 | 13 | `pre_nhl_projection` | Age-snapshot features, three heads, serving predictions + a metrics JSON |
 | 14 | `prospect_percentiles` | Peer percentiles, a byte-offset season index, and the board's league/team facets |
 
-**Stage 10 — provisional tiers.** The core ETL only *assigns* tiers to players with
+**Stage 10: provisional tiers.** The core ETL only *assigns* tiers to players with
 a stable sample. Stage 10 *predicts* them for limited-sample players, from
 early-career windows that accumulate whole seasons to 60 / 82 / 120 / 160 GP,
 scored on the same tiering features (per-season z-scores against the stable
 population, clipped at −1.0). One XGBoost model per position. Under 60 NHL GP is
 deferred rather than guessed at, and those players keep the `Provisional` badge
 until they cross it. Aspect scores are min-max scaled against the stable reference
-so they share the radar scale with everyone else — a predicted tier and an assigned
+so they share the radar scale with everyone else. A predicted tier and an assigned
 one are directly comparable on the same radar, which is the only reason it is safe
 to show them on the same page.
 
-**Stage 12 — learned NHLe.** Cross-league PPG is not comparable, and the published
+**Stage 12: learned NHLe.** Cross-league PPG is not comparable, and the published
 NHLe constants are stale and coarse. I learn them here: paired same-season and
 adjacent-season PPG ratios for players who appear in two leagues, corrected for age
 growth, solved as one weighted-least-squares graph anchored at the NHL, then
 era-indexed and region-shrunk. 1,484 league-era factors out.
 
-**Stage 13 — the heads.** A hurdle, deliberately, rather than one multi-class model:
+**Stage 13: the heads.** I chose a hurdle over one multi-class model:
 
 | Head | Task | Notes |
 |---|---|---|
@@ -178,7 +178,7 @@ gets learned as a label proxy. That is [the label-leakage bug](../bugs/label-lea
 
 **Training and serving windows differ on purpose, and explicitly.** Post-debut
 minor-league seasons are *kept* in the percentile population and in serving
-snapshots — a called-up prospect's AHL year has to count — and *held out* of that
+snapshots (a called-up prospect's AHL year has to count) and *held out* of that
 player's own training features by an explicit flag. Which scrape file a row arrived
 in must never decide whether a season exists.
 
@@ -186,7 +186,7 @@ in must never decide whether a season exists.
 probability for everyone, graduates included. Forcing it to 1.0 after a debut
 destroys the retro view the feature exists for. Graduation is a flag.
 
-**Season labels are normalised at the edge.** Every source writes its own format —
+**Season labels are normalised at the edge.** Every source writes its own format:
 an end-year query param here, a start-year folder there, `15/16` somewhere else.
 Each scraper normalises to `YYYY-YY`; the consuming stage asserts it.
 
@@ -200,17 +200,17 @@ Each scraper normalises to `YYYY-YY`; the consuming stage asserts it.
 | A partial run resumes | `--skip` / `--only`; stage outputs are the resume points |
 | A failed scrape cannot corrupt state | Scrapes write raw storage; the ETL only reads it |
 | Import is atomic per rebuild | Full rebuild truncates and reloads; the in-season path upserts on declared keys |
-| A new league or club is never silently dropped | Every joining script prints the names that did not join. Add an alias — do not loosen the match |
+| A new league or club is never silently dropped | Every joining script prints the names that did not join. Add an alias; do not loosen the match |
 
 What actually goes wrong:
 
 - **A source changes its season labelling.** Caught by the stage assertion, loudly.
 - **A club relocates.** Feeds that dedupe by club *name* silently drop every name
   but the first for a franchise that has moved. Keying on the franchise id fixes
-  it, and it is why I walk every season instead of the current one.
-- **A feed returns a placeholder instead of nothing.** One source hands back a
-  "no photo" URL rather than a null, so a URL built from an id instead of read from
-  the feed 404s about half the time.
+  it, and it is why I walk every season, not just the current one.
+- **A feed returns a placeholder for a missing value.** One source hands back a
+  "no photo" URL where you would expect a null, so a URL built from an id, and not
+  read from the feed, 404s about half the time.
 - **A source starts blocking scripted clients.** The answer is a second independent
   source for the same field, not a more aggressive client. Coverage gaps are
   catalogued with the reason, including the sources known to be unreachable.
@@ -231,8 +231,9 @@ I split tests by whether they need pipeline artifacts on disk.
 | `TestDbUpsertConfig` | Upsert column lists exclude PKs, right count | No |
 | `TestSeasonScraperHelpers` | Season string format, required column set | No |
 
-Artifact-dependent tests skip with a clear message rather than failing when the ETL
-has not been run, so the logic-only suite stays fast and always runnable.
+Artifact-dependent tests skip with a clear message when the ETL has not been run, so
+the logic-only suite stays fast and always runnable. That is also what lets CI run
+without checking out any data; see [automation](../ci-cd/README.md).
 
 ---
 
@@ -242,16 +243,22 @@ A full rebuild is the wrong tool for a nightly refresh: cleaning, filtering, and
 tier clustering are stable within a season, and re-running them is slow and churns
 tier assignments for no reason.
 
-I built an update path that re-runs only the data-dependent stages, then **upserts**
-instead of truncating. It can skip the scrape entirely and re-run the ETL over
-existing raw data, target one season, and push to production only behind an explicit
-flag. Nothing reaches production as a side effect of a local run.
+I built an update path that re-runs only the four data-dependent stages and then
+**upserts**. It never truncates. The stages are named explicitly as a lane, so the
+nightly can never pick up a training stage by accident
+([ADR 0008](../decisions/0008-named-lanes-over-skip-lists.md)). It can skip the scrape
+and re-run the ETL over existing raw data, or target one season.
+
+It now runs every night on GitHub Actions, writes to staging unless production is named
+explicitly, and takes a little over three minutes. Nothing reaches production as a side
+effect of a run. How that is kept safe is in [automation](../ci-cd/README.md).
 
 ---
 
 ## Related
 
-- [Architecture](../architecture/README.md) — where the pipeline sits
+- [Architecture](../architecture/README.md): where the pipeline sits
+- [Automation](../ci-cd/README.md): what runs on a schedule
 - [Bug: a label in disguise](../bugs/label-leakage.md)
 - [Bug: calibrated, and useless](../bugs/serving-time-calibration.md)
 - [How it was measured](../benchmarks/README.md)

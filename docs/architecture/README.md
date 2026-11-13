@@ -9,9 +9,10 @@ downstream follows from keeping that seam clean.
 ## Hockey data is read-only online
 
 I designed it so no request ever writes hockey data. Tiers, aspect scores,
-projections, percentiles, reports — all computed offline, all loaded by import
-scripts. The only online writes are user-owned: conversations, messages, feedback,
-favourites, watchlists, and a `users` row mirrored just-in-time from a verified JWT.
+projections, percentiles, reports: all computed offline, all loaded by import
+scripts. The only online writes are user-owned (conversations, messages, feedback,
+favourites, watchlists, and a `users` row mirrored just-in-time from a verified JWT),
+plus the Scout Agent's cache of web and video search results.
 
 What that buys me:
 
@@ -19,13 +20,13 @@ What that buys me:
   produced it is a versioned CSV plus a metrics JSON.
 - **Serverless-viable.** No model in the request path, so cold starts stay cheap
   and the API tolerates scaling to zero.
-- **Cache-correct.** Derived caches — the search trie, the answer cache — have
+- **Cache-correct.** Derived caches (the search trie, the answer cache) have
   exactly one invalidation trigger: an import.
 - **Debuggable.** A wrong number on a page traces to a stage output, never to a
   race between a request and a training job.
 
 The cost: the board is only as fresh as the last pipeline run. That is why I built
-an incremental in-season path next to the full rebuild — see
+an incremental in-season path next to the full rebuild. See
 [ETL](../etl/README.md#in-season-updates).
 
 ---
@@ -48,7 +49,7 @@ flowchart TB
     EMB["Embedding build"]
   end
 
-  CSV[["processed CSVs — versioned artifacts"]]
+  CSV[["processed CSVs: versioned artifacts"]]
 
   subgraph Serving
     IMP["import scripts"]
@@ -77,6 +78,7 @@ flowchart TB
 | **Embedding build** | Voyage embeddings over the retrieval text | Resumable; a text-only mode works with no API key |
 | **Import scripts** | CSV → Postgres | Full rebuild truncates and reloads; in-season upserts |
 | **API** | Read hockey data; own chat and user state | Stateless apart from an in-process prefix trie |
+| **Scout Agent** | Web search and highlight videos on top of the chat | LangGraph tool loop; the database answer still runs every turn ([agent](../agent/README.md)) |
 | **Frontend** | Product surfaces | App Router, ~20 routes plus an admin area |
 
 ---
@@ -99,7 +101,7 @@ Two choices worth calling out.
 link. Sequential ids would make every thread in the system enumerable from one
 shared URL.
 
-**Two tsvector columns, not one** — `english` for prose, `simple` (unstemmed) for
+**Two tsvector columns, not one.** `english` for prose, `simple` (unstemmed) for
 names. Merging them is the obvious move and it fails in both directions
 ([ADR 0003](../decisions/0003-separate-name-and-prose-text-vectors.md)).
 
@@ -111,13 +113,13 @@ names. Merging them is the obvious move and it fails in both directions
 thing it has to get right is *which kind of grade* a player carries: `tiered` for a
 settled career, `provisional` for an early-NHL player whose tier was predicted or is
 still deferred, `rookie` for a call-up the prospect board still owns. I serve the
-badge straight off the cohort the pipeline assigned — the API never infers it from
+badge straight off the cohort the pipeline assigned. The API never infers it from
 games played, because that logic already exists in
 [stage 2](../etl/README.md#the-four-cohorts) and two copies of it would drift.
 
 **A similarity query** is a pgvector nearest-neighbour over 8-dimensional aspect
 vectors. Scope matters. Career vectors are only comparable inside one scaling
-track — modern 2005+ vs historical 1968–2004 — because careers span eras and
+track (modern 2005+ vs historical 1968-2004), because careers span eras and
 pre-1998 careers have only partial TOI, so career similarity is era-bounded.
 Season-window vectors for 1997-98+ live in one shared space: a single min-max
 scaling over both cohorts, real TOI. Within a season, a historical-track player and
@@ -126,6 +128,11 @@ a modern one compare head to head.
 **A Scout question** is the only multi-stage path. A planner and entity linker sit
 ahead of retrieval; comps and metadata filters can short-circuit or restrict it;
 adaptive *k* and an intent-conditioned prompt close the turn.
+
+When the agent is on, it wraps that path. The database answer still runs on every turn, and the
+agent model decides in parallel whether the question also needs a web search or highlight videos.
+Web results go into the same answer as extra evidence and are fact-checked before the answer is
+sent. Details: [Scout Agent](../agent/README.md).
 
 ```mermaid
 flowchart TB
@@ -151,9 +158,10 @@ Rationale and numbers: [retrieval](../retrieval/README.md).
 |---|---|---|
 | Frontend | Vercel | Next.js 16, React 19, Tailwind 4 |
 | API | Vercel serverless | FastAPI via an ASGI entrypoint; import scripts excluded from the bundle, so pandas never ships to production |
-| Database | Supabase — PostgreSQL 16 + pgvector | |
+| Database | Supabase, PostgreSQL 16 + pgvector | |
 | Auth | Supabase Auth, email + Google | API trusts verified JWTs, mirrors a `users` row just-in-time |
-| Pipeline | Operator machine, batch | Pushes to production only behind an explicit flag |
+| Pipeline, in-season | GitHub Actions, nightly | Four stages, no training; upserts to staging unless production is named explicitly ([automation](../ci-cd/README.md)) |
+| Pipeline, full rebuild + training | Operator machine, batch | Long-running and seed-drawing; deliberately never unattended |
 | Local dev | Docker Compose | Full stack including Postgres; a dev overlay adds hot reload |
 
 I deliberately do not run the pipeline on the serving platform. It is
@@ -170,12 +178,13 @@ clean batch boundary for nothing.
 | Prefix trie for autocomplete | API process memory | Process start; a full import needs a restart or redeploy |
 | Answer cache | `answer_cache` table | Truncated by the scouting import; also by a `PROMPT_VERSION` bump |
 | Precomputed derived scores | Columns on `prospects` | Recomputed at import |
+| Agent tool cache | `agent_tool_cache` table | Time-based: 7 days for videos (keyed by player), 1 hour for web results |
 
 I key the answer cache **after** retrieval: question cosine ≥ 0.95 **and**
 identical sorted doc ids **and** the same model **and** the same `PROMPT_VERSION`
 and intent. Question similarity alone would serve a Jack Hughes answer to a Quinn
 Hughes question; omitting intent would serve a lookup answer to a comps question
-over the same docs. Scope-routed turns are not cached at all — the season window
+over the same docs. Scope-routed turns are not cached at all. The season window
 the router resolved is invisible to that key, so caching them makes answers wrong
 rather than merely stale.
 
@@ -195,7 +204,9 @@ rather than merely stale.
 
 ## Related
 
-- [ETL pipeline](../etl/README.md) — the 14 stages
-- [Retrieval](../retrieval/README.md) — ranking, the planner rewrite, and answer eval
-- [Validator](../validation/README.md) — how generated prose is gated
+- [ETL pipeline](../etl/README.md): the 14 stages
+- [Retrieval](../retrieval/README.md): ranking, the planner rewrite, and answer eval
+- [Scout Agent](../agent/README.md): the tool loop on top of the chat
+- [Automation](../ci-cd/README.md): what runs on a schedule
+- [Validator](../validation/README.md): how generated prose is gated
 - [Decisions](../decisions/README.md)

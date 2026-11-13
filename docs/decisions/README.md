@@ -2,7 +2,7 @@
 
 I keep short records of consequential choices I made: the context, the decision,
 what else I considered, and what it cost. One decision per file. Records are not
-edited after acceptance — a changed decision gets a new record that supersedes the
+edited after acceptance. A changed decision gets a new record that supersedes the
 old one.
 
 | # | Decision | Status |
@@ -14,3 +14,4 @@ old one.
 | [0005](0005-deterministic-validator-over-llm-judge.md) | A deterministic validator rather than an LLM judge | Accepted |
 | [0006](0006-explicit-alias-maps-over-fuzzy-matching.md) | Explicit alias maps rather than fuzzy matching | Accepted |
 | [0007](0007-rookies-stay-on-the-prospect-board.md) | Rookies stay on the prospect board | Accepted |
+| [0008](0008-named-lanes-over-skip-lists.md) | In-season lanes name their stages rather than skip others | Accepted |
