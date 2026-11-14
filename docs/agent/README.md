@@ -14,6 +14,11 @@ and every external call runs under per-tool quotas with a shared cache in Postgr
 Every number here comes from the agent eval (26 labelled questions) or from the saved runs named
 next to it. How that eval works is in [how it was measured](../benchmarks/README.md).
 
+[![Scout Agent, web search and highlights](../../assets/demos/16-scout-agent.gif)](https://drive.google.com/file/d/1_r9WmMQ3ynl0oOmBrZR25P1y1p5N6WVB/preview)
+
+*Two live turns on the production site: a question about recent form that goes to web search, then a
+follow-up for highlights that comes back as video cards. Click to play.*
+
 ---
 
 ## Shape of a turn

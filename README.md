@@ -1,6 +1,11 @@
 # PuckAI: engineering write-up
 
-**Live site: [www.thepuckai.com](https://www.thepuckai.com)**
+**Live site: [www.thepuckai.com](https://www.thepuckai.com)** (going offline TBD; the recordings below
+stay up after it does)
+
+[![Watch the demo](assets/demos/thumbnail.png)](https://drive.google.com/file/d/1Ig18cQeeMEtRHCsdZT3fapmsLOHxO1zs/preview)
+
+*A walkthrough of the live site (11 min 23 s), recorded in November 2026. Click the image to play it.*
 
 PuckAI is a hockey analytics site I built and run on my own. It has NHL player profiles and tiers,
 projections for pre-NHL prospects, a similar-player search that works across eras, and a scouting
@@ -30,6 +35,149 @@ says so.
 | **Scouting reports** | 7,643 generated reports. A checker traces every number in them back to a pipeline value. | I generate scouting write-ups and verify every fact against my own data. |
 | **PuckAI Scout** | Chat over that library: a planner, an entity linker, hybrid retrieval or computed comparables, adaptive *k*, and citations. | A chat that searches my reports and cites them. |
 | **Scout Agent** | A LangGraph tool loop on top of Scout that can search the web (Tavily) and find highlight videos (YouTube Data API). | When the reports are too old to answer, the chat can look things up. |
+
+## See it working
+
+I recorded each part of the live site in November 2026, before taking it offline. Each GIF plays
+here on its own; click it to open the full-quality video. The recordings were made with
+Playwright at 1280×800. Recorded video has no browser frame, so I drew the address bar in
+afterwards from the browser's navigation log. It shows the real URL at each moment.
+
+### NHL player profile
+
+A search for McDavid from the home page, then his whole profile, top to bottom: tier, the
+eight-aspect radar, his season trajectory, the scouting report, the five nearest players from the
+similarity search, what the prospect model projected for him before his first NHL game, and his
+season-by-season league percentile.
+
+[![NHL player profile](assets/demos/01-player-profile.gif)](https://drive.google.com/file/d/1vkbuBwW43HlIj98OzdtZr03UtXlDFBCs/preview)
+
+### Prospect projection
+
+Three prospects, each found from the prospect board's search and read top to bottom: P(NHL),
+expected tier with a floor and a ceiling, the outcome distribution, the scouting report, and the
+league percentile by season.
+
+<details>
+<summary>Vaclav Nestrasil, a forward at UMass</summary>
+
+[![Prospect projection: Vaclav Nestrasil](assets/demos/02-prospect-nestrasil.gif)](https://drive.google.com/file/d/1uTJBqi50kOiOevV72ThdmXUo_vmvUC54/preview)
+
+</details>
+
+<details>
+<summary>Cole O'Hara, in the AHL</summary>
+
+[![Prospect projection: Cole O'Hara](assets/demos/03-prospect-ohara.gif)](https://drive.google.com/file/d/1KkydwxKz4lju5jD6CdL6uBle97cgYIlX/preview)
+
+</details>
+
+<details>
+<summary>Ryan Ufko, in the AHL</summary>
+
+[![Prospect projection: Ryan Ufko](assets/demos/04-prospect-ufko.gif)](https://drive.google.com/file/d/1b2XOWqiVPqw90dBhjQMb42L6bPCijEph/preview)
+
+</details>
+
+Two prospects can also be compared head to head: each one's outcome distribution, first overall and
+then conditional on reaching the NHL, with development curves aligned by age.
+
+<details>
+<summary>Cole O'Hara against Aiden Fink</summary>
+
+[![Prospect comparison](assets/demos/05-prospect-compare.gif)](https://drive.google.com/file/d/1YyyCry13ZCYPWmyaUqY7x6DJwybMC02C/preview)
+
+</details>
+
+### Player comparison
+
+Each pair is shown twice, in the NHL-career view and in the prospect-era view, then with the
+outcome distribution conditional on reaching the NHL.
+
+<details>
+<summary>Crosby against McDavid</summary>
+
+[![Crosby vs McDavid](assets/demos/06-compare-crosby-mcdavid.gif)](https://drive.google.com/file/d/1WN5XDrbacWIPdyTGh17w6HLCXJ8gxD8o/preview)
+
+</details>
+
+<details>
+<summary>Crosby against Celebrini</summary>
+
+[![Crosby vs Celebrini](assets/demos/07-compare-crosby-celebrini.gif)](https://drive.google.com/file/d/1PB8oJOzzDDVBR4CWCaF6cRLcQuZUjFoE/preview)
+
+</details>
+
+<details>
+<summary>Celebrini against McKenna</summary>
+
+[![Celebrini vs McKenna](assets/demos/08-compare-celebrini-mckenna.gif)](https://drive.google.com/file/d/1kcuM_LiwtpM-bhKsY55ZrMlMLhkL1Lz6/preview)
+
+</details>
+
+<details>
+<summary>Makar against Schaefer</summary>
+
+[![Makar vs Schaefer](assets/demos/09-compare-makar-schaefer.gif)](https://drive.google.com/file/d/1pJfqG03hYQ-ALrH9RJg3Xr7y-glAVz43/preview)
+
+</details>
+
+### Team comparison
+
+Each pair is read down to the roster cards: tier breakdown, average aspect scores, team radars,
+the head-to-head overlay, and the players by tier.
+
+<details>
+<summary>Vegas against Carolina</summary>
+
+[![Vegas vs Carolina](assets/demos/10-teams-vgk-car.gif)](https://drive.google.com/file/d/1kkfWdHqWA2dtl3vsXPQPFBB2DgKZ6gpi/preview)
+
+</details>
+
+<details>
+<summary>Colorado against Carolina</summary>
+
+[![Colorado vs Carolina](assets/demos/11-teams-col-car.gif)](https://drive.google.com/file/d/1FQu6C6Hfa8VuYIhqHkZ0P5wHWb5RmEqb/preview)
+
+</details>
+
+The same comparison works for college teams.
+
+<details>
+<summary>UMass against Boston University</summary>
+
+[![UMass vs Boston University](assets/demos/12-teams-umass-bu.gif)](https://drive.google.com/file/d/1Nc_hHcQj3Pxd8GHaukqaTJi8l4oaKCzn/preview)
+
+</details>
+
+<details>
+<summary>UMass against Boston College</summary>
+
+[![UMass vs Boston College](assets/demos/13-teams-umass-bc.gif)](https://drive.google.com/file/d/1OwSInoF5kR4O3b1iCQb9dsQaHICRPp2v/preview)
+
+</details>
+
+### PuckAI Scout
+
+A signed-out visitor clicks a sample question. This one is a **cached replay**: no model is called,
+and the progress steps are compressed to at most 4 seconds. Live latency is in
+[Numbers](#numbers).
+
+[![Scout, cached sample question](assets/demos/14-scout-guest.gif)](https://drive.google.com/file/d/1ZOIcq94UJQPUwvPh1PLQOKuyO2YvDVwV/preview)
+
+Signed in, with a question typed and answered **live**. The wait on screen is the real wait; the only
+cut is a half-second screen redraw.
+
+[![Scout, live question](assets/demos/15-scout-live.gif)](https://drive.google.com/file/d/1ph3ig1OM4cIiBDhWB2INFvyWEW13lhEF/preview)
+
+### Scout Agent
+
+The first question asks how Brad Marchand has been doing lately, which the reports can't answer. The
+agent searches the web, reports his injury and expected return, and lists the sources it used. The
+follow-up asks for highlights, which come back as video cards. Answered live; the only cut is a
+half-second screen redraw.
+
+[![Scout Agent, web search and highlights](assets/demos/16-scout-agent.gif)](https://drive.google.com/file/d/1_r9WmMQ3ynl0oOmBrZR25P1y1p5N6WVB/preview)
 
 ## How it fits together
 

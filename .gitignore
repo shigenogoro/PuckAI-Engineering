@@ -84,3 +84,6 @@ tmp/
 *.orig
 draft-*.md
 NOTES.local.md
+
+# ─── Demo recordings: GIFs + thumbnail are committed; full MP4s live on Google Drive ───
+assets/demos/*.mp4
